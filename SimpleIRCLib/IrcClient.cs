@@ -162,7 +162,8 @@ namespace SimpleIRCLib
                 if (port == 0)
                 {
                     _NewPort = 6697;
-                } else if (port != 6697)
+                }
+                else if (port != 6697)
                 {
                     OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs("PORT: " + port.ToString() + " IS NOT COMMONLY USED FOR TLS/SSL CONNECTIONS, PREFER TO USE 6697 FOR SSL!", "SETUP WARNING"));
                 }
@@ -216,7 +217,7 @@ namespace SimpleIRCLib
                 OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs("IRC CLIENT SUCCESFULLY RUNNING", "IRC SETUP"));
                 return true;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs(e.ToString(), "SETUP ERROR"));
                 return false;
@@ -359,7 +360,7 @@ namespace SimpleIRCLib
             try
             {
                 OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs("STARTING LISTENER!", "IRC RECEIVER"));
-              
+
 
                 Dictionary<string, List<string>> usersPerChannelDictionary = new Dictionary<string, List<string>>();
 
@@ -372,21 +373,21 @@ namespace SimpleIRCLib
 
                     OnRawMessageReceived?.Invoke(this, new IrcRawReceivedEventArgs(ircData));
 
-                    
+
 
                     if (ircData.Contains("PING"))
                     {
                         string pingID = ircData.Split(':')[1];
                         WriteIrc("PONG :" + pingID);
                     }
-                    if ( ircData.Contains("PRIVMSG"))
+                    if (ircData.Contains("PRIVMSG"))
                     {
 
 
                         //:MrRareie!~MrRareie_@Rizon-AC4B78B2.cm-3-2a.dynamic.ziggo.nl PRIVMSG #RareIRC :wassup
 
 
-                        
+
                         try
                         {
                             string messageAndChannel = ircData.Split(new string[] { "PRIVMSG" }, StringSplitOptions.None)[1];
@@ -398,7 +399,7 @@ namespace SimpleIRCLib
 
                             OnMessageReceived?.Invoke(this, new IrcReceivedEventArgs(message, user, channel));
                         }
-                        catch(Exception ex)
+                        catch (Exception ex)
                         {
                             OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs(ex.ToString(), "MESSAGE RECEIVED ERROR (PRIVMSG)"));
                         }
@@ -451,9 +452,9 @@ namespace SimpleIRCLib
                         //:irc.x2x.cc 353 RoflHerp = #RareIRC :RoflHerp @MrRareie
                         try
                         {
-                            string channel = ircData.Split(new[] { " " + _NewUsername + " ="}, StringSplitOptions.None)[1].Split(':')[0].Replace(" ", string.Empty); 
+                            string channel = ircData.Split(new[] { " " + _NewUsername + " =" }, StringSplitOptions.None)[1].Split(':')[0].Replace(" ", string.Empty);
                             string userListFullString = ircData.Split(new[] { " " + _NewUsername + " =" }, StringSplitOptions.None)[1].Split(':')[1];
-                           
+
 
                             if (!channel.Contains(_NewUsername) && !channel.Contains("="))
                             {
@@ -482,17 +483,18 @@ namespace SimpleIRCLib
                                     usersPerChannelDictionary.Add(channel.Trim(), currentUsers);
                                 }
                             }
-                          
 
-                        } catch (Exception ex)
+
+                        }
+                        catch (Exception ex)
                         {
                             OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs(ex.ToString(), "MESSAGE RECEIVED ERROR (USERLIST)"));
                         }
-                                     
-                        
+
+
                     }
 
-                    if(ircData.ToLower().Contains(" 366 "))
+                    if (ircData.ToLower().Contains(" 366 "))
                     {
                         OnUserListReceived?.Invoke(this, new IrcUserListReceivedEventArgs(usersPerChannelDictionary));
                         usersPerChannelDictionary.Clear();
@@ -504,7 +506,8 @@ namespace SimpleIRCLib
 
                 QuitConnect();
                 _stopTask = false;
-            } catch (Exception ioex)
+            }
+            catch (Exception ioex)
             {
                 OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs("LOST CONNECTION: " + ioex.ToString(), "MESSAGE RECEIVER"));
                 if (_isConnectionEstablised)
@@ -514,9 +517,9 @@ namespace SimpleIRCLib
                 }
             }
             _IsClientRunning = false;
-        }   
+        }
 
-       
+
         /// <summary>
         /// Sends message to all channels, if message is not one of the following:
         /// /msg [bot] xdcc send [pack]
@@ -533,44 +536,44 @@ namespace SimpleIRCLib
         {
 
             input = input.Trim();
-            Regex regex1 = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(send)+(\s))(.*)))");
-            Match matches1 = regex1.Match(input.ToLower());
-            Regex regex2 = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(cancel))(.*)))");
-            Match matches2 = regex2.Match(input.ToLower());
-            Regex regex3 = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(remove)+(\s))(.*)))");
-            Match matches3 = regex3.Match(input.ToLower());
+            Regex sendPackage = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(send)+(\s))(.*)))");
+            Match sendMatches = sendPackage.Match(input.ToLower());
+            Regex cancelPackage = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(cancel))(.*)))");
+            Match cancelMatches = cancelPackage.Match(input.ToLower());
+            Regex removeFromQueue = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(remove)+(\s))(.*)))");
+            Match removeMatches = removeFromQueue.Match(input.ToLower());
 
-            if (matches1.Success)
+            if (sendMatches.Success)
             {
-                _bot = matches1.Groups["botname"].Value.Trim(); 
-                _packNumber = matches1.Groups["packnum"].Value.Trim(); 
+                _bot = sendMatches.Groups["botname"].Value.Trim();
+                _packNumber = sendMatches.Groups["packnum"].Value.Trim();
                 string xdccdl = "PRIVMSG " + _bot + " :XDCC SEND " + _packNumber;
                 return WriteIrc(xdccdl);
             }
-            else if (matches2.Success)
+            if (cancelMatches.Success)
             {
-                _bot = matches2.Groups["botname"].Value;
+                _bot = cancelMatches.Groups["botname"].Value;
                 string xdcccl = "PRIVMSG " + _bot + " :XDCC CANCEL";
                 return WriteIrc(xdcccl);
             }
-            else if (matches3.Success)
+            if (removeMatches.Success)
             {
-                _bot = matches3.Groups["botname"].Value;
-                _packNumber = matches3.Groups["packnum"].Value;
+                _bot = removeMatches.Groups["botname"].Value;
+                _packNumber = removeMatches.Groups["packnum"].Value;
                 string xdccdl = "PRIVMSG " + _bot + " :XDCC REMOVE " + _packNumber;
                 return WriteIrc(xdccdl);
-            } else if (input.ToLower().Contains("/names"))
+            }
+            if (input.ToLower().Contains("/names"))
             {
                 if (input.Contains("#"))
                 {
                     string channelList = input.Split(' ')[1];
                     return GetUsersInChannel(channelList);
-                } else
-                {
-                    return GetUsersInChannel("");
                 }
+                return GetUsersInChannel("");
+
             }
-            else if (input.ToLower().Contains("/join"))
+            if (input.ToLower().Contains("/join"))
             {
 
                 if (input.Split(' ').Length > 0)
@@ -579,25 +582,20 @@ namespace SimpleIRCLib
                     _NewChannelss += channels;
                     return WriteIrc("JOIN " + channels);
                 }
-                else
-                {
-                    return false;
-                }
+                return false;
+
             }
-            else if(input.ToLower().Contains("/quit"))
+            if (input.ToLower().Contains("/quit"))
             {
                 return QuitConnect();
             }
-            else if (input.ToLower().Contains("/msg"))
+            if (input.ToLower().Contains("/msg"))
             {
                 return WriteIrc(input.Replace("/msg", "PRIVMSG"));
             }
-            else
-            {
-                return WriteIrc("PRIVMSG " + _NewChannelss + " :" + input);
-            }
+            return WriteIrc("PRIVMSG " + _NewChannelss + " :" + input);
 
-          
+
         }
 
 
@@ -618,46 +616,44 @@ namespace SimpleIRCLib
         {
 
             input = input.Trim();
-            Regex regex1 = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(send)+(\s))(.*)))");
-            Match matches1 = regex1.Match(input.ToLower());
-            Regex regex2 = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(cancel))(.*)))");
-            Match matches2 = regex2.Match(input.ToLower());
-            Regex regex3 = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(remove)+(\s))(.*)))");
-            Match matches3 = regex3.Match(input.ToLower());
+            Regex sendPackage = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(send)+(\s))(.*)))");
+            Match sendMatches = sendPackage.Match(input.ToLower());
+            Regex cancelPackage = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(cancel))(.*)))");
+            Match cancelMatches = cancelPackage.Match(input.ToLower());
+            Regex removeFromQueue = new Regex(@"^(?=.*(?<botname>(?<=/msg)(.*)(?=xdcc)))(?=.*(?<packnum>(?<=(remove)+(\s))(.*)))");
+            Match removeMatches = removeFromQueue.Match(input.ToLower());
 
-            if (matches1.Success)
+            if (sendMatches.Success)
             {
-                _bot = matches1.Groups["botname"].Value.Trim();
-                _packNumber = matches1.Groups["packnum"].Value.Trim();
+                _bot = sendMatches.Groups["botname"].Value.Trim();
+                _packNumber = sendMatches.Groups["packnum"].Value.Trim();
                 string xdccdl = "PRIVMSG " + _bot + " :XDCC SEND " + _packNumber;
                 return WriteIrc(xdccdl);
             }
-            else if (matches2.Success)
+            if (cancelMatches.Success)
             {
-                _bot = matches2.Groups["botname"].Value;
+                _bot = cancelMatches.Groups["botname"].Value;
                 string xdcccl = "PRIVMSG " + _bot + " :XDCC CANCEL";
                 return WriteIrc(xdcccl);
             }
-            else if (matches3.Success)
+            if (removeMatches.Success)
             {
-                _bot = matches3.Groups["botname"].Value;
-                _packNumber = matches3.Groups["packnum"].Value;
+                _bot = removeMatches.Groups["botname"].Value;
+                _packNumber = removeMatches.Groups["packnum"].Value;
                 string xdccdl = "PRIVMSG " + _bot + " :XDCC REMOVE " + _packNumber;
                 return WriteIrc(xdccdl);
             }
-            else if (input.ToLower().Contains("/names"))
+            if (input.ToLower().Contains("/names"))
             {
                 if (input.Contains("#"))
                 {
                     string channelList = input.Split(' ')[1];
                     return GetUsersInChannel(channelList);
                 }
-                else
-                {
-                    return GetUsersInChannel(channel);
-                }
+                return GetUsersInChannel(channel);
+
             }
-            else if (input.ToLower().Contains("/join"))
+            if (input.ToLower().Contains("/join"))
             {
 
                 if (input.Split(' ').Length > 0)
@@ -666,24 +662,19 @@ namespace SimpleIRCLib
                     _NewChannelss += channels;
                     return WriteIrc("JOIN " + channels);
                 }
-                else
-                {
-                    return false;
-                }
+
+                return false;
+
             }
-            else if (input.ToLower().Contains("/quit"))
+            if (input.ToLower().Contains("/quit"))
             {
                 return QuitConnect();
             }
-            else if (input.ToLower().Contains("/msg"))
+            if (input.ToLower().Contains("/msg"))
             {
                 return WriteIrc(input.Replace("/msg", "PRIVMSG"));
             }
-            else
-            {
-                return WriteIrc("PRIVMSG " + channel + " :" + input);
-            }
-
+            return WriteIrc("PRIVMSG " + channel + " :" + input);
 
         }
 
@@ -704,14 +695,7 @@ namespace SimpleIRCLib
         /// <returns>true/false depending if it could write to the server</returns>
         public bool GetUsersInChannel(string channel = "")
         {
-            
-            if (channel != "")
-            {
-                return WriteIrc("NAMES " + channel);
-            } else
-            {
-                return WriteIrc("NAMES " + _NewChannelss);
-            }
+            return channel != "" ? WriteIrc("NAMES " + channel) : WriteIrc("NAMES " + _NewChannelss);
         }
 
         /// <summary>
@@ -726,7 +710,8 @@ namespace SimpleIRCLib
                 _streamWriter.Write(input + Environment.NewLine);
                 _streamWriter.Flush();
                 return true;
-            } catch(Exception e)
+            }
+            catch (Exception e)
             {
                 OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs("Could not send message" + input + ", _tcpClient client is not running :X, error : " + e.ToString(), "MESSAGE SENDER")); ;
                 return false;
@@ -743,13 +728,14 @@ namespace SimpleIRCLib
             try
             {
                 return !_dccClient.AbortDownloader(_timeOut);
-            } catch (Exception e)
+            }
+            catch (Exception e)
             {
                 OnDebugMessage?.Invoke(this, new IrcDebugMessageEventArgs("Could not stop XDCC Download, error: " + e.ToString(), "IRC CLIENT XDCC STOP"));
                 return true;
             }
         }
-        
+
         /// <summary>
         /// Checks if a download is running or not.
         /// </summary>
@@ -796,5 +782,5 @@ namespace SimpleIRCLib
         }
     }
 
-    
+
 }
