@@ -22,6 +22,11 @@ namespace SimpleIRCLib
         public event EventHandler<IrcReceivedEventArgs> OnMessageReceived;
 
         /// <summary>
+        /// Fires when a new download was added.
+        /// </summary>
+        public event EventHandler<Download> OnDownloadAdded;
+
+        /// <summary>
         /// Event Handler for firing when a raw message is received from the irc server, event uses IrcRawReceivedEventArgs from IrcEventArgs.cs
         /// </summary>
         public event EventHandler<IrcRawReceivedEventArgs> OnRawMessageReceived;
@@ -443,7 +448,8 @@ namespace SimpleIRCLib
 
                     if (ircData.Contains("DCC SEND") && ircData.Contains(_NewUsername))
                     {
-                        _dccClient.StartDownloader(ircData, _downloadDirectory, _bot, _packNumber, this);
+                        var dl =_dccClient.StartDownload(ircData, _downloadDirectory, _bot, _packNumber, this);
+                        OnDownloadAdded?.Invoke(this,dl);
                     }
 
                     //RareIRC_Client = #weebirc :RareIRC_Client

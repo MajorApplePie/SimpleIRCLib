@@ -25,22 +25,22 @@ namespace SimpleIRCLib
         /// Status : current download status, for example: (WAITING, DOWNLOADING, FAILED, ABORTED, etc)
         /// Progress : percentage downloaded (0-100%) (is int!)
         /// </summary>
-        /// <param name="currentClient"></param>
-        public DCCEventArgs(DCCClient currentClient)
+        /// <param name="currentDownload"></param>
+        public DCCEventArgs(Download currentDownload)
         {
-            DccString = currentClient.NewDccString;
-            FileName = currentClient.NewFileName;
-            FileSize = currentClient.NewFileSize;
-            Ip = currentClient.NewIP;
-            Port = currentClient.NewPortNum;
-            Pack = currentClient.PackNum;
-            Bot = currentClient.BotName;
-            BytesPerSecond = currentClient.BytesPerSecond;
-            KBytesPerSecond = currentClient.KBytesPerSecond;
-            MBytesPerSecond = currentClient.MBytesPerSecond;
-            Status = currentClient.Status;
-            Progress = currentClient.Progress;
-            FilePath = currentClient.CurrentFilePath;
+            DccString = currentDownload.DccString;
+            FileName = currentDownload.FileName;
+            FileSize = currentDownload.FileSize;
+            Ip = currentDownload.Ip;
+            Port = currentDownload.Port;
+            Pack = currentDownload.PackageNumber;
+            Bot = currentDownload.BotName;
+            BytesPerSecond = currentDownload.BytesPerSecond;
+            KBytesPerSecond = currentDownload.KBytesPerSecond;
+            MBytesPerSecond = currentDownload.MBytesPerSecond;
+            Status = currentDownload.Status;
+            Progress = currentDownload.Progress;
+            FilePath = currentDownload.CurrentFilePath;
         }
 
         /// <summary>
@@ -78,15 +78,15 @@ namespace SimpleIRCLib
         /// <summary>
         /// Download speed in: KB/s
         /// </summary>
-        public int KBytesPerSecond { get; }
+        public long KBytesPerSecond { get; }
         /// <summary>
         /// Download speed in: MB/s
         /// </summary>
-        public int MBytesPerSecond { get; }
+        public long MBytesPerSecond { get; }
         /// <summary>
         /// Download status, such as: WAITING,DOWNLOADING,FAILED:[ERROR],ABORTED
         /// </summary>
-        public string Status { get; }
+        public Status Status { get; }
         /// <summary>
         /// Progress from 0-100 (%)
         /// </summary>
