@@ -1,27 +1,35 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace SimpleIRCLib
 {
-    public class Download
+    public class Download : INotifyPropertyChanged
     {
 
-        #region Properties
+        #region Events
 
         /// <summary>
         /// For firing debug event using DCCDebugMessageArgs from DCCEventArgs.cs
         /// </summary>
         public event EventHandler<DCCDebugMessageArgs> OnDccDebugMessage;
 
+        /// <summary>
+        /// For firing dcc events using DCCEventArgs.
+        /// </summary>
         public event EventHandler<DCCEventArgs> OnDccEvent;
 
-        public event EventHandler<int> OnProgressChanged;
-        public event EventHandler<Status> OnStatusChanged;
+
+        #endregion
+
+        #region Properties
+
 
         /// <summary>
         /// File size of the File being downloaded.
@@ -45,12 +53,31 @@ namespace SimpleIRCLib
                 if(value != _progress)
                 {
                     _progress = value;
-                    OnProgressChanged?.Invoke(this, _progress);
+                    OnPropertyChanged(nameof(Progress));
                 }
             }
         }
-        public Status Status { get; private set; }
-        public Int64 BytesPerSecond { get; private set; }
+        public Status Status
+        {
+            get => _status;
+            set
+            {
+                _status = value;
+                OnPropertyChanged(nameof(Status));
+            }
+        }
+    
+        public Int64 BytesPerSecond
+        {
+            get => _bytesPerSecond;
+            set
+            {
+                _bytesPerSecond = value;
+                OnPropertyChanged(nameof(BytesPerSecond));
+                OnPropertyChanged(nameof(KBytesPerSecond));
+                OnPropertyChanged(nameof(MBytesPerSecond));
+            }
+        }
         public Int64 KBytesPerSecond => BytesPerSecond / 1024;
         public Int64 MBytesPerSecond => BytesPerSecond / 1024 / 1024;
         public string BotName { get; private set; }
@@ -61,6 +88,9 @@ namespace SimpleIRCLib
         public bool IsValid { get; private set; } = true;
 
         private int _progress = 0;
+        private Status _status;
+        private Int64 _bytesPerSecond;
+        
         #endregion
 
         private readonly CancellationToken _cancellationToken;
@@ -68,6 +98,13 @@ namespace SimpleIRCLib
 
 
 
+
+        /// <param name="dccString">DCC string received from bot</param>
+        /// <param name="downloadDirectory">The download directory.</param>
+        /// <param name="bot">The bot.</param>
+        /// <param name="package">The package number to download</param>
+        /// <param name="client">Connected IrcClient</param>
+        /// <param name="token">Cancellation token</param>
         public Download(string dccString, string downloadDirectory, string bot, string package, IrcClient client, CancellationToken token)
         {
             _cancellationToken = token;
@@ -90,9 +127,9 @@ namespace SimpleIRCLib
 
 
 
-            if (!dccString.Contains("SEND")) // Fail, no SEND
+            if (!dccString.Contains("SEND")) // Fail, no SEND in dcc string
             {
-                UpdateStatus(Status.Failed);
+                Status = Status.Failed;
                 IsValid = false;
 
                 OnDccDebugMessage?.Invoke(this,
@@ -103,18 +140,18 @@ namespace SimpleIRCLib
             else
             {
                 // parse data for download
-                UpdateStatus(Status.Parsing);
+                Status = Status.Parsing;
 
                 if (!ParseData(dccString)) // Invalid dcc string
                 {
-                    UpdateStatus(Status.Failed);
+                    Status = Status.Failed;
                     IsValid = false;
                     OnDccDebugMessage?.Invoke(this,
                         new DCCDebugMessageArgs(
                             "Can't parse dcc string and start downloader, failed to parse data, removing from que\n",
                             "DCC STARTER"));
-                    _client.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackageNumber);
-                    _client.SendMessageToAll("/msg " + BotName + " xdcc cancel");
+                    _client.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackageNumber); // remove from queue
+                    _client.SendMessageToAll("/msg " + BotName + " xdcc cancel"); // cancel download
 
                 }
             }
@@ -126,13 +163,13 @@ namespace SimpleIRCLib
         /// </summary>
         public async Task Run()
         {
-            if (!IsValid)
+            if (!IsValid) // Only continue if parsing was successful 
             {
                 OnDccDebugMessage?.Invoke(this, new DCCDebugMessageArgs("Can't download. Invalid Command.", "DCC Run"));
                 return;
             }
 
-            UpdateStatus(Status.Waiting);
+            Status = Status.Waiting;
 
             var directory = new DirectoryInfo(DownloadDirectory);
             if (!directory.Exists)
@@ -143,16 +180,16 @@ namespace SimpleIRCLib
             if (fileInfo.Exists) // quit if File exists
             {
                 OnDccDebugMessage?.Invoke(this, new DCCDebugMessageArgs("File already Exists, removing from queue.", "DCC Downloader"));
-                _client.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackageNumber);
-                _client.SendMessageToAll("/msg " + BotName + " xdcc cancel");
-                UpdateStatus(Status.Failed);
+                _client.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackageNumber); // remove from queue
+                _client.SendMessageToAll("/msg " + BotName + " xdcc cancel"); // cancel download
+                Status = Status.Failed;
                 return;
             }
 
             // Abort if cancellation requested
             if (_cancellationToken.IsCancellationRequested)
             {
-                UpdateStatus(Status.Aborted);
+                Status = Status.Aborted;
                 return;
             }
 
@@ -166,7 +203,7 @@ namespace SimpleIRCLib
                 {
                     using (var stream = tcpClient.GetStream())
                     {
-                        UpdateStatus(Status.Downloading);
+                        Status = Status.Downloading;
 
                         long bytesRecieved = 0;
                         long previousBytesRecieved = 0;
@@ -213,7 +250,7 @@ namespace SimpleIRCLib
                                 // Abort if cancellation requested
                                 if (_cancellationToken.IsCancellationRequested)
                                 {
-                                    UpdateStatus(Status.Aborted);
+                                    Status = Status.Aborted;
                                     fileInfo.Delete();
                                     return;
                                 }
@@ -237,13 +274,13 @@ namespace SimpleIRCLib
                                 OnDccEvent?.Invoke(this, new DCCEventArgs(this));
                             }
 
-                            if (bytesRecieved < 95 * onePercent) // finished with most of the file done
+                            if (bytesRecieved == FileSize) // finished with most of the file done
                             {
-                                UpdateStatus(Status.Completed);
+                                Status = Status.Completed;
                             }
                             else // connection failed
                             {
-                                UpdateStatus(Status.Failed);
+                                Status = Status.Failed;
                                 fileInfo.Delete();
                             }
                         }
@@ -260,7 +297,7 @@ namespace SimpleIRCLib
                         e, "DCC DOWNLOADER"));
                 _client.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackageNumber);
                 _client.SendMessageToAll("/msg " + BotName + " xdcc cancel");
-                UpdateStatus(Status.Failed);
+                Status = Status.Failed;
             }
             catch (Exception e)
             {
@@ -270,15 +307,9 @@ namespace SimpleIRCLib
                         e, "DCC DOWNLOADER"));
                 _client.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackageNumber);
                 _client.SendMessageToAll("/msg " + BotName + " xdcc cancel");
-                UpdateStatus(Status.Failed);
+                Status = Status.Failed;
             }
 
-        }
-
-        private void UpdateStatus(Status status)
-        {
-            Status = status;
-            OnStatusChanged?.Invoke(this, status);
         }
 
 
@@ -496,6 +527,13 @@ namespace SimpleIRCLib
 
             }
 
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 

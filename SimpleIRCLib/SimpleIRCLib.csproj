@@ -17,8 +17,4 @@ https://github.com/EldinZenderink/SimpleIRCLib</Description>
     <PackageReleaseNotes>-- Now supports multiple frameworks such as: .net45 to .net47 &amp; core 2.0 &amp; core 2.1</PackageReleaseNotes>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Folder Include="Properties\" />
-  </ItemGroup>
-
 </Project>
