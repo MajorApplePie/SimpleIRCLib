@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.Design;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,7 +23,7 @@ namespace SimpleIRCLib
         /// <summary>
         /// FileSize of the file being downloaded
         /// </summary>
-        public Int64 FileSize { get; }
+        public long FileSize { get; }
         /// <summary>
         /// Port of server of file location
         /// </summary>
@@ -28,7 +31,7 @@ namespace SimpleIRCLib
         /// <summary>
         /// Progress from 0-100 (%)
         /// </summary>
-        public int Progress { get; private set; }
+        public long Progress { get; private set; }
         /// <summary>
         /// Download state.
         /// </summary>
@@ -51,33 +54,91 @@ namespace SimpleIRCLib
         /// </summary>
         public DirectoryInfo Destination { get; }
 
-        /// <summary>
-        /// To provide the latest data downloaded to outside the library
-        /// </summary>
-        public List<byte> Buffer { get; set; } // TODO: probably don't need this as a prop or at all
 
         /// <summary>
         /// Token to abort the current download.
         /// </summary>
-        private CancellationToken _cancellationToken;
+        private readonly CancellationToken _cancellationToken;
+        private readonly IrcClient _ircClient;
 
-        public DccDownload(string dccString, DirectoryInfo destination, string botName, string pack, CancellationToken cancellationToken) : this(dccString, destination, botName, pack)
+        public DccDownload(string dccString, DirectoryInfo destination, string pack, CancellationToken cancellationToken, IrcClient ircClient)
         {
             _cancellationToken = cancellationToken;
-        }
-        public DccDownload(string dccString, DirectoryInfo destination, string pack)
-        {
             PackNum = pack;
             Destination = destination;
+            _ircClient = ircClient;
+
             State = DownloadState.Ready;
-            (FileName, Ip, PortNumber, FileSize, BotName) = DccStringParser.ParseDccString(dccString);
+            try
+            {
+
+                (FileName, Ip, PortNumber, FileSize, BotName) = DccStringParser.ParseDccString(dccString);
+            }
+            catch
+            {
+                ChangeState(DownloadState.Error);
+            }
         }
 
         public async Task Start()
         {
-            if (_cancellationToken.IsCancellationRequested) return;
+            if (_cancellationToken.IsCancellationRequested)
+            {
+                ChangeState(DownloadState.Aborted); return;
+            }
 
-            State = DownloadState.Running;
+            var file = new FileInfo(Path.Combine(Destination.FullName, FileName));
+
+            if (file.Exists)
+            {
+                ChangeState(DownloadState.Error);
+            }
+
+            if (!file.Directory.Exists)
+            {
+                file.Directory.Create();
+            }
+
+            var serverIp = IPAddress.Parse(Ip);
+
+            using var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(serverIp, PortNumber);
+            ChangeState(DownloadState.Running);
+
+            using var fileStream = file.OpenWrite();
+            using var binaryWriter = new BinaryWriter(fileStream);
+            var buffer = new byte[1048576];
+            int bytesRead;
+            int totalBytesRead = 0;
+            while( (bytesRead = await socket.ReceiveAsync(buffer, SocketFlags.None, _cancellationToken)) > 0)
+            {
+                if (_cancellationToken.IsCancellationRequested)
+                {
+                    ChangeState(DownloadState.Aborted);
+                    return;
+                }
+
+                binaryWriter.Write(buffer, 0, bytesRead);
+                totalBytesRead += bytesRead;
+                Progress = totalBytesRead / FileSize / 100;
+            }
+
+            ChangeState(DownloadState.Finished);
+        }
+
+        private void ChangeState(DownloadState state)
+        {
+            State = state;
+            switch(state)
+            {
+                case DownloadState.Aborted:  CleanupAbort(); break;
+            };
+        }
+
+        private void CleanupAbort()
+        {
+            _ircClient.SendMessageToAll($"/msg ${BotName} xdcc remove ${PackNum}");
+            _ircClient.SendMessageToAll($"/msg ${BotName} xdcc cancel ${PackNum}");
         }
     }
 }

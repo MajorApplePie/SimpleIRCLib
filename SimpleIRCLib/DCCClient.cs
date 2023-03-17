@@ -8,6 +8,7 @@ using System.Text;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace SimpleIRCLib
 {
@@ -35,21 +36,6 @@ namespace SimpleIRCLib
         private readonly ConcurrentBag<DccDownload> _downloads = new ConcurrentBag<DccDownload>();
         private readonly ConcurrentQueue<DccDownload> _activeDownloads = new ConcurrentQueue<DccDownload>();
 
-        /// <summary>
-        /// Client that is currently running, used for sending abort messages when a download fails, or a dcc string fails to parse.
-        /// </summary>
-        private IrcClient _ircClient;
-
-        /// <summary>
-        /// Current download directory that will be used when starting a download
-        /// </summary>
-        private string _curDownloadDir;
-
-        /// <summary>
-        /// Thread where download logic is running
-        /// </summary>
-        private Thread _downloader;
-
 
         public DCCClient(int maxConcurrentDownloads = 3)
         {
@@ -60,6 +46,14 @@ namespace SimpleIRCLib
         {
             _downloads.Add(download);
             _activeDownloads.Enqueue(download);
+        }
+
+        private Task StartDownloadTask()
+        {
+            while(_activeDownloads.TryDequeue(out var download))
+            {
+
+            }
         }
 
         /// <summary>
@@ -89,7 +83,7 @@ namespace SimpleIRCLib
                 if (isParsed)
                 {
                     _shouldAbort = false;
-                   //start the downloader thread
+                    //start the downloader thread
                     _downloader = new Thread(new ThreadStart(this.Downloader));
                     _downloader.IsBackground = true;
                     _downloader.Start();
@@ -105,318 +99,14 @@ namespace SimpleIRCLib
             }
             else
             {
-                if (IsDownloading)
-                {
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("You are already downloading! Ignore SEND request\n", "DCC STARTER"));
-                }
-                else
-                {
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCC String does not contain SEND and/or invalid values for parsing! Ignore SEND request\n", "DCC STARTER"));
-                }
+
+                OnDccDebugMessage?.Invoke(this,
+                    new DCCDebugMessageArgs("DCC String does not contain SEND and/or invalid values for parsing! Ignore SEND request\n", "DCC STARTER"));
+
             }
         }
+        public string CurrentFilePath { get; set; }
 
-
-        /// <summary>
-        /// Method ran within downloader thread, starts a connection to the file server, and receives the file accordingly, sends updates using event handler during the download.
-        /// </summary>
-        public void Downloader()
-        {
-
-            UpdateStatus("WAITING");
-
-            Buffer = new List<byte>();
-
-            //combining download directory path with filename
-
-            if (_curDownloadDir != null)
-            {
-                if (_curDownloadDir != string.Empty)
-                {
-                    if (_curDownloadDir.Length > 0)
-                    {
-                        if (!Directory.Exists(_curDownloadDir))
-                        {
-                            Directory.CreateDirectory(_curDownloadDir);
-                        }
-                    }
-                    else
-                    {
-                        _curDownloadDir = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "Downloads");
-                        if (!Directory.Exists(_curDownloadDir))
-                        {
-                            Directory.CreateDirectory(_curDownloadDir);
-                        }
-                    }
-                }
-                else
-                {
-                    _curDownloadDir = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "Downloads");
-                    if (!Directory.Exists(_curDownloadDir))
-                    {
-                        Directory.CreateDirectory(_curDownloadDir);
-                    }
-                }
-            }
-            else
-            {
-                _curDownloadDir = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "Downloads");
-                if (!Directory.Exists(_curDownloadDir))
-                {
-                    Directory.CreateDirectory(_curDownloadDir);
-                }
-            }
-        
-            string dlDirAndFileName = Path.Combine(_curDownloadDir, NewFileName);
-            CurrentFilePath = dlDirAndFileName;
-            try
-            {
-                if (!File.Exists(dlDirAndFileName))
-                {
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("File does not exist yet, start connection with: " + NewIP + ":" + NewPortNum + Environment.NewLine, "DCC DOWNLOADER"));
-                    Thread.Sleep(500);
-                    //start connection with tcp server
-
-                    IPAddress ip = IPAddress.Parse(NewIP);
-
-                    using (TcpClient dltcp = new TcpClient(ip.AddressFamily))
-                    {
-
-                        dltcp.Connect(ip, NewPortNum);
-                        using (NetworkStream dlstream = dltcp.GetStream())
-                        {
-                            //succesfully connected to tcp server, status is downloading
-                            UpdateStatus("DOWNLOADING");
-
-                            //values to keep track of progress
-                            Int64  bytesReceived = 0;
-                            Int64  oldBytesReceived = 0;
-                            Int64  oneprocent = NewFileSize / 100;
-                            DateTime start = DateTime.Now;
-                            bool timedOut = false;
-
-                            //values to keep track of download position
-                            int count;
-
-                            //to me this buffer size seemed to be the most efficient.
-                            byte[] buffer;
-                            if (NewFileSize > 1048576)
-                            {
-                                OnDccDebugMessage?.Invoke(this,
-                                    new DCCDebugMessageArgs("Big file, big buffer (1 mb) \n ", "DCC DOWNLOADER"));
-                                buffer = new byte[16384];
-                            } else if(NewFileSize < 1048576 && NewFileSize > 2048)
-                            {
-                                OnDccDebugMessage?.Invoke(this,
-                                    new DCCDebugMessageArgs("Smaller file (< 1 mb), smaller buffer (2 kb) \n ", "DCC DOWNLOADER"));
-                                buffer = new byte[2048];
-                            } else if (NewFileSize < 2048 && NewFileSize > 128)
-                            {
-                                OnDccDebugMessage?.Invoke(this,
-                                    new DCCDebugMessageArgs("Small file (< 2kb mb), small buffer (128 b) \n ", "DCC DOWNLOADER"));
-                                buffer = new byte[128];
-                            } else
-                            {
-                                OnDccDebugMessage?.Invoke(this,
-                                    new DCCDebugMessageArgs("Tiny file (< 128 b), tiny buffer (2 b) \n ", "DCC DOWNLOADER"));
-                                buffer = new byte[2];
-                            }
-                                
-
-                            //create file to write to
-                            using (FileStream writeStream = new FileStream(dlDirAndFileName, FileMode.Append, FileAccess.Write, FileShare.Read))
-                            {
-                                writeStream.SetLength(NewFileSize);
-                                IsDownloading = true;
-                                //download while connected and filesize is not reached
-                                while (dltcp.Connected && bytesReceived < NewFileSize && !_shouldAbort)
-                                {
-                                    if (_shouldAbort)
-                                    {
-                                        dltcp.Close();
-                                        dlstream.Dispose();
-                                        writeStream.Close();
-                                    }
-                                    //keep track of progress
-                                    DateTime end = DateTime.Now;
-                                    if (end.Second !=  start.Second)
-                                    {
-
-                                        BytesPerSecond = bytesReceived - oldBytesReceived;
-                                        KBytesPerSecond = (int)(BytesPerSecond / 1024);
-                                        MBytesPerSecond = (KBytesPerSecond / 1024);
-                                        oldBytesReceived = bytesReceived;
-                                        start = DateTime.Now;
-                                        UpdateStatus("DOWNLOADING");
-                                        Buffer.Clear();
-                                    }
-
-                                    //count bytes received
-                                    count = dlstream.Read(buffer, 0, buffer.Length);
-
-                                    //write to buffer
-                                    Buffer.AddRange(buffer);
-
-                                    //write to file
-                                    writeStream.Write(buffer, 0, count);
-
-                                    //count bytes received
-                                    bytesReceived += count;
-
-                                    Progress = (int)(bytesReceived / oneprocent);
-                                }
-
-                                //close all connections and streams (just to be save)
-                                dltcp.Close();
-                                dlstream.Dispose();
-                                writeStream.Close();
-
-                                IsDownloading = false;
-
-                                if (_shouldAbort)
-                                {
-                                    try
-                                    {
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("Downloader Stopped", "DCC DOWNLOADER"));
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("File " + CurrentFilePath + " will be deleted due to aborting", "DCC DOWNLOADER"));
-                                        File.Delete(CurrentFilePath);
-
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("File " + CurrentFilePath + " probably doesn't exist :X", "DCC DOWNLOADER"));
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs(e.ToString(), "DCC DOWNLOADER"));
-                                    }
-
-                                    UpdateStatus("ABORTED");
-                                } else
-                                {
-
-                                    //consider 95% downloaded as done, files are sequentually downloaded, sometimes download stops early, but the file still is usable
-                                    if (Progress < 95 && !_shouldAbort)
-                                    {
-                                        UpdateStatus("FAILED");
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("Download stopped at < 95 % finished, deleting file: " + NewFileName + " \n", "DCC DOWNLOADER"));
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("Download stopped at : " + bytesReceived + " bytes, a total of " + Progress + "%", "DCC DOWNLOADER"));
-                                        File.Delete(dlDirAndFileName);
-                                        timedOut = false;
-
-
-                                    }
-                                    else if (timedOut && Progress < 95 && !_shouldAbort)
-                                    {
-                                        UpdateStatus("FAILED: TIMED OUT");
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("Download timed out at < 95 % finished, deleting file: " + NewFileName + " \n", "DCC DOWNLOADER"));
-                                        OnDccDebugMessage?.Invoke(this,
-                                            new DCCDebugMessageArgs("Download stopped at : " + bytesReceived + " bytes, a total of " + Progress + "%", "DCC DOWNLOADER"));
-                                        File.Delete(dlDirAndFileName);
-                                        timedOut = false;
-                                    }
-                                    else if (!_shouldAbort)
-                                    {
-                                        //make sure that in the event something happens and the downloader calls delete after finishing, the file will remain where it is.
-                                        dlDirAndFileName = "";
-                                        UpdateStatus("COMPLETED");
-                                    }
-
-                                }
-                                _shouldAbort = false;
-
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("File already exists, removing from xdcc que!\n", "DCC DOWNLOADER"));
-                    _ircClient.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackNum);
-                    _ircClient.SendMessageToAll("/msg " + BotName + " xdcc cancel");
-                    UpdateStatus("FAILED: ALREADY EXISTS");
-                }
-                OnDccDebugMessage?.Invoke(this,
-                    new DCCDebugMessageArgs("File has been downloaded! \n File Location:" + CurrentFilePath , "DCC DOWNLOADER"));
-
-            }
-            catch (SocketException e)
-            {
-                OnDccDebugMessage?.Invoke(this,
-                    new DCCDebugMessageArgs("Something went wrong while downloading the file! Removing from xdcc que to be sure! Error:\n" + e.ToString(), "DCC DOWNLOADER"));
-                _ircClient.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackNum);
-                _ircClient.SendMessageToAll("/msg " + BotName + " xdcc cancel");
-                UpdateStatus("FAILED: CONNECTING");
-            }
-            catch (Exception ex)
-            {
-                OnDccDebugMessage?.Invoke(this,
-                    new DCCDebugMessageArgs("Something went wrong while downloading the file! Removing from xdcc que to be sure! Error:\n" + ex.ToString(), "DCC DOWNLOADER"));
-                _ircClient.SendMessageToAll("/msg " + BotName + " xdcc remove " + PackNum);
-                _ircClient.SendMessageToAll("/msg " + BotName + " xdcc cancel");
-                UpdateStatus("FAILED: UNKNOWN");
-            }
-            IsDownloading = false;
-        }        
-
-        /// <summary>
-        /// Fires the event with the update about the download currently running
-        /// </summary>
-        /// <param name="statusin">the current status of the download</param>
-        private void UpdateStatus(string statusin)
-        {
-            Status = statusin;
-            OnDccEvent?.Invoke(this, new DCCEventArgs(this));
-        }
-
-        /// <summary>
-        /// Stops a download if one is running, checks if the donwnloader thread actually stops.
-        /// </summary>
-        /// <returns>true if stopped succesfully</returns>
-        public bool AbortDownloader(int timeOut)
-        {
-            if (CheckIfDownloading())
-            {
-                OnDccDebugMessage?.Invoke(this,
-                    new DCCDebugMessageArgs("File " + CurrentFilePath + " will be deleted after aborting.", "DCC DOWNLOADER"));
-
-                _shouldAbort = true;
-
-                int timeout = 0;
-                while (CheckIfDownloading())
-                {
-                    if (timeout > timeOut)
-                    {
-                        return false;
-                    }
-                    timeout++;
-                    Thread.Sleep(1);
-                }
-
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Checks if download is still running.
-        /// </summary>
-        /// <returns>true if still downloading</returns>
-        public bool CheckIfDownloading()
-        {
-            return IsDownloading;
-        }
 
         /// <summary>
         /// Removes special characters from  a string (used for filenames)
@@ -444,16 +134,17 @@ namespace SimpleIRCLib
         private string ReverseIp(string ip)
         {
             string[] parts = ip.Trim().Split('.');
-            if(parts.Length >= 3)
+            if (parts.Length >= 3)
             {
                 OnDccDebugMessage?.Invoke(this,
                     new DCCDebugMessageArgs("DCCClient: converting ip: " + ip, "DCC IP PARSER"));
-                string NewIP= parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0];
+                string NewIP = parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0];
                 OnDccDebugMessage?.Invoke(this,
                     new DCCDebugMessageArgs("DCCClient: to: " + NewIP, "DCC IP PARSER"));
 
                 return NewIP;
-            } else
+            }
+            else
             {
                 OnDccDebugMessage?.Invoke(this,
                     new DCCDebugMessageArgs("DCCClient: converting ip: " + ip, "DCC IP PARSER"));
@@ -461,30 +152,6 @@ namespace SimpleIRCLib
                     new DCCDebugMessageArgs("DCCClient: amount of parts: " + parts.Length, "DCC IP PARSER"));
                 return "0.0.0.0";
             }
-        }
-
-        /// <summary>
-        /// Converts a long/int64 to a ip string.
-        /// </summary>
-        /// <param name="address">int64 numbers representing IP address</param>
-        /// <returns>string with ip</returns>
-        private string UInt64ToIPAddress(Int64 address)
-        {
-            string ip = string.Empty;
-            for (int i = 0; i < 4; i++)
-            {
-                int num = (int)(address / Math.Pow(256, (3 - i)));
-                address = address - (long)(num * Math.Pow(256, (3 - i)));
-                if (i == 0)
-                {
-                    ip = num.ToString();
-                }
-                else
-                {
-                    ip = ip + "." + num.ToString();
-                }
-            }
-            return ip;
         }
     }
 }
