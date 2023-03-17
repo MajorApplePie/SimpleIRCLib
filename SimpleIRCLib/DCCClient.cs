@@ -6,6 +6,8 @@ using System.Threading;
 using System.IO;
 using System.Text;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Linq;
 
 namespace SimpleIRCLib
 {
@@ -24,74 +26,14 @@ namespace SimpleIRCLib
         /// </summary>
         public event EventHandler<DCCDebugMessageArgs> OnDccDebugMessage;
 
-        /// <summary>
-        /// Raw DCC String used for getting the file location (server) and some basic file information
-        /// </summary>
-        public string NewDccString { get; set; }
-        /// <summary>
-        /// File name of the file being downloaded
-        /// </summary>
-        public string NewFileName { get; set; }
-        /// <summary>
-        /// Pack ID of file on bot where file resides
-        /// </summary>
-        public int NewPortNum { get; set; }
-        /// <summary>
-        /// FileSize of the file being downloaded
-        /// </summary>
-        public Int64 NewFileSize { get; set; }
-        /// <summary>
-        /// Port of server of file location
-        /// </summary>
-        public string NewIP{ get; set; }
-        /// <summary>
-        /// Progress from 0-100 (%)
-        /// </summary>
-        public int Progress { get; set; }
-        /// <summary>
-        /// Download status, such as: WAITING,DOWNLOADING,FAILED:[ERROR],ABORTED
-        /// </summary>
-        public string Status { get; set; }
-        /// <summary>
-        /// Download speed in: KB/s
-        /// </summary>
-        public Int64 BytesPerSecond { get; set; }
-        /// <summary>
-        /// Download speed in: MB/s
-        /// </summary>
-        public int KBytesPerSecond { get; set; }
-        /// <summary>
-        /// Download status, such as: WAITING,DOWNLOADING,FAILED:[ERROR],ABORTED
-        /// </summary>
-        public int MBytesPerSecond { get; set; }
-        /// <summary>
-        /// Bot name where file resides
-        /// </summary>
-        public string BotName { get; set; }
-        /// <summary>
-        /// Pack ID of file on bot where file resides
-        /// </summary>
-        public string PackNum { get; set; }
-        /// <summary>
-        /// Check for status of DCCClient
-        /// </summary>
-        public bool IsDownloading { get; set; }
-        /// <summary>
-        /// Path to the file that is being downloaded, or has been downloaded
-        /// </summary>
-        public string CurrentFilePath { get; set; }
+        public int MaxConcurrentDownloads { get; }
 
         /// <summary>
-        /// To provide the latest data downloaded to outside the library
+        /// List of all Downloads, running and finished.
         /// </summary>
-        public List<byte> Buffer { get; set; }
-
-        /// <summary>
-        /// Local bool to tell the while loop within the download thread to stop.
-        /// </summary>
-        private bool _shouldAbort = false;
-
-        
+        public IReadOnlyList<DccDownload> Downloads { get => _downloads.ToList(); }
+        private readonly ConcurrentBag<DccDownload> _downloads = new ConcurrentBag<DccDownload>();
+        private readonly ConcurrentQueue<DccDownload> _activeDownloads = new ConcurrentQueue<DccDownload>();
 
         /// <summary>
         /// Client that is currently running, used for sending abort messages when a download fails, or a dcc string fails to parse.
@@ -108,12 +50,16 @@ namespace SimpleIRCLib
         /// </summary>
         private Thread _downloader;
 
-        /// <summary>
-        /// Initial constructor.
-        /// </summary>
-        public DCCClient()
+
+        public DCCClient(int maxConcurrentDownloads = 3)
         {
-            IsDownloading = false;
+            MaxConcurrentDownloads = maxConcurrentDownloads;
+        }
+
+        public void AddDownload(DccDownload download)
+        {
+            _downloads.Add(download);
+            _activeDownloads.Enqueue(download);
         }
 
         /// <summary>
@@ -172,174 +118,6 @@ namespace SimpleIRCLib
             }
         }
 
-        /// <summary>
-        /// Parses the received DCC string
-        /// </summary>
-        /// <param name="dccString">dcc string</param>
-        /// <returns>returns true if parsing was succesfull, false if failed</returns>
-        private bool ParseData(string dccString)
-        {
-            /*
-           * :_bot PRIVMSG nickname :DCC SEND \"filename\" ip_networkbyteorder port filesize
-           *AnimeDispenser!~desktop@Rizon-6AA4F43F.ip-37-187-118.eu PRIVMSG WeebIRCDev :DCC SEND "[LNS] Death Parade - 02 [BD 720p] [7287AE5C].mkv" 633042523 59538 258271780  
-           *HelloKitty!~nyaa@ny.aa.ny.aa PRIVMSG WeebIRCDev :DCC SEND [Coalgirls]_Spirited_Away_(1280x692_Blu-ray_FLAC)_[5805EE6B].mkv 3281692293 35567 10393049211
-           :[EWG]-bOnez!EWG@CRiTEN-BB8A59E9.ip-158-69-126.net PRIVMSG LittleWeeb_jtokck :DCC SEND The.Good.Doctor.S01E13.Seven.Reasons.1080p.AMZN.WEB-DL.DD+5.1.H.264-QOQ.mkv 2655354388 55000 1821620363
-           *Ginpa2:DCC SEND "[HorribleSubs] Dies Irae - 05 [480p].mkv" 84036312 35016 153772128 
-             */
-
-            dccString = RemoveSpecialCharacters(dccString).Substring(1);
-            OnDccDebugMessage?.Invoke(this,
-                new DCCDebugMessageArgs("DCCClient: DCC STRING: " + dccString, "DCC PARSER"));
-
-
-            if (!dccString.Contains(" :DCC"))
-            {
-                BotName = dccString.Split(':')[0];
-                if (dccString.Contains("\""))
-                {
-                    NewFileName = dccString.Split('"')[1];
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient1: FILENAME PARSED: " + NewFileName, "DCC PARSER"));
-                    string[] thaimportantnumbers = dccString.Split('"')[2].Trim().Split(' ');
-                    if (thaimportantnumbers[0].Contains(":"))
-                    {
-                        NewIP= thaimportantnumbers[0];
-                    }
-                    else
-                    {
-                        try
-                        {
-
-                            OnDccDebugMessage?.Invoke(this,
-                                new DCCDebugMessageArgs("DCCClient1: PARSING FOLLOWING IPBYTES: " + thaimportantnumbers[0], "DCC PARSER"));
-                            string ipAddress = UInt64ToIPAddress(Int64.Parse(thaimportantnumbers[0]));
-                            NewIP= ipAddress;
-                        }
-                        catch
-                        {
-                            return false;
-                        }
-                    }
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient1: IP PARSED: " + NewIP, "DCC PARSER"));
-                    NewPortNum = int.Parse(thaimportantnumbers[1]);
-                    NewFileSize = Int64.Parse(thaimportantnumbers[2]);
-
-                    return true;
-                }
-                else
-                {
-                    NewFileName = dccString.Split(' ')[2];
-
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient2: FILENAME PARSED: " + NewFileName, "DCC PARSER"));
-
-                    if (dccString.Split(' ')[3].Contains(":"))
-                    {
-                        NewIP= dccString.Split(' ')[3];
-                    }
-                    else
-                    {
-                        try
-                        {
-
-
-                            OnDccDebugMessage?.Invoke(this,
-                                new DCCDebugMessageArgs("DCCClient2: PARSING FOLLOWING IPBYTES DIRECTLY: " + dccString.Split(' ')[3], "DCC PARSER"));
-                            string ipAddress = UInt64ToIPAddress(Int64.Parse(dccString.Split(' ')[3]));
-                            NewIP= ipAddress;
-                        }
-                        catch
-                        {
-
-                            return false;
-                        }
-                    }
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient2: IP PARSED: " + NewIP, "DCC PARSER"));
-                    NewPortNum = int.Parse(dccString.Split(' ')[4]);
-                    NewFileSize = Int64.Parse(dccString.Split(' ')[5]);
-                    return true;
-                }
-            } else
-            {
-                BotName = dccString.Split('!')[0];
-                if (dccString.Contains("\""))
-                {
-                    NewFileName = dccString.Split('"')[1];
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient3: FILENAME PARSED: " + NewFileName, "DCC PARSER"));
-                    string[] thaimportantnumbers = dccString.Split('"')[2].Trim().Split(' ');
-
-                    if (thaimportantnumbers[0].Contains(":"))
-                    {
-                        NewIP= thaimportantnumbers[0];
-                    }
-                    else
-                    {
-                        try
-                        {
-
-                            OnDccDebugMessage?.Invoke(this,
-                                new DCCDebugMessageArgs("DCCClient3: PARSING FOLLOWING IPBYTES DIRECTLY: " + thaimportantnumbers[0], "DCC PARSER"));
-                            string ipAddress = UInt64ToIPAddress(Int64.Parse(thaimportantnumbers[0]));
-                            NewIP= ipAddress;
-                        }
-                        catch
-                        {
-                            return false;
-                        }
-                    }
-
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient3: IP PARSED: " + NewIP, "DCC PARSER"));
-                    NewPortNum = int.Parse(thaimportantnumbers[1]);
-                    NewFileSize = Int64.Parse(thaimportantnumbers[2]);
-                    return true;
-                } else
-                {
-                    NewFileName = dccString.Split(' ')[5];
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient4: FILENAME PARSED: " + NewFileName, "DCC PARSER"));
-
-                    if (dccString.Split(' ')[6].Contains(":"))
-                    {
-                        NewIP= dccString.Split(' ')[6];
-                    } else
-                    {
-                        try
-                        {
-
-                            OnDccDebugMessage?.Invoke(this,
-                                new DCCDebugMessageArgs("DCCClient4: PARSING FOLLOWING IPBYTES DIRECTLY: " + dccString.Split(' ')[6], "DCC PARSER"));
-                            string ipAddress = UInt64ToIPAddress(Int64.Parse(dccString.Split(' ')[6]));
-                            NewIP= ipAddress;
-                        }
-                        catch
-                        {
-                            return false;
-                        }
-
-                    }
-
-                    OnDccDebugMessage?.Invoke(this,
-                        new DCCDebugMessageArgs("DCCClient4: IP PARSED: " + NewIP, "DCC PARSER"));
-                    NewPortNum = int.Parse(dccString.Split(' ')[7]);
-                    NewFileSize = Int64.Parse(dccString.Split(' ')[8]);
-                    return true;
-
-                }
-                
-
-            }
-
-        }
 
         /// <summary>
         /// Method ran within downloader thread, starts a connection to the file server, and receives the file accordingly, sends updates using event handler during the download.
